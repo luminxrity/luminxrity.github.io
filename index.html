@@ -51,6 +51,7 @@ li.row .t{min-width:0}
 </head>
 <body>
 <main id="app"></main>
+<p style="text-align:center;color:#6f6aa8;font-size:.75rem;margin-top:40px">v4</p>
 <script>
 /* ====== CONFIG : colle ici ton Client ID Spotify (ou saisis-le dans la page) ====== */
 const CLIENT_ID_DEFAULT = "";
@@ -113,11 +114,12 @@ function showLogin(err){
     <h1>Ce que tu écoutes vraiment</h1>
     <p>Connecte ton compte Spotify pour voir tes artistes, titres et genres les plus écoutés.</p>
     ${CLIENT_ID_DEFAULT?"":`<input id="cid" placeholder="Client ID Spotify" value="${esc(clientId())}" aria-label="Client ID Spotify"><br>`}
-    <button id="go">Se connecter avec Spotify</button>
+    <button id="go">Se connecter avec Spotify</button><br><button class="ghost" id="imp" style="margin-top:12px">Importer mon historique complet</button>
     <p class="note" style="margin:24px auto 0">Redirect URI à enregistrer à l'identique dans ton dashboard Spotify :<br><code style="color:var(--sun);user-select:all;overflow-wrap:anywhere">${esc(REDIRECT)}</code></p>
     ${err?`<p class="err">${esc(err)}</p>`:""}
   </section>`;
   document.getElementById("go").onclick = login;
+  document.getElementById("imp").onclick = () => showImport();
 }
 
 const RANGES = [["short_term","4 dernières semaines"],["medium_term","6 derniers mois"],["long_term","Depuis toujours"]];
@@ -132,8 +134,8 @@ async function render(){
       api(`/me/top/tracks?limit=50&time_range=${range}`),
       api(`/me/player/recently-played?limit=50`)
     ]);
-    draw(ta.items, tt.items, rp.items);
-  }catch(e){ $app.innerHTML = `<p class="err">${esc(e.message)}</p><p class="note"><button id="lo">Se reconnecter</button></p>`; document.getElementById("lo").onclick = logout; }
+    draw(ta.items||[], tt.items||[], (rp.items||[]).filter(r=>r&&r.track&&r.track.artists&&r.track.artists[0]));
+  }catch(e){ console.error(e); $app.innerHTML = `<p class="err">${esc(e.message)}</p><p class="note">${esc((e.stack||"").split("\n").slice(0,3).join(" | "))}</p><p class="note"><button id="lo">Se reconnecter</button></p>`; document.getElementById("lo").onclick = logout; }
 }
 
 const img = o => (o.images||o.album?.images||[])[1]?.url || (o.images||o.album?.images||[])[0]?.url || "";
@@ -142,7 +144,7 @@ const row = (i,n,a,b) => `<li class="row"><span class="rk">${i+1}</span><img src
 function draw(artists, tracks, recent){
   // genres
   const gc = {};
-  artists.forEach(a=>(a.genres||[]).forEach(g=>gc[g]=(gc[g]||0)+1));
+  (artists||[]).forEach(a=>(a.genres||[]).forEach(g=>gc[g]=(gc[g]||0)+1));
   const genres = Object.entries(gc).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const gmax = genres[0]?.[1] || 1;
   // stats récentes (50 derniers titres)
@@ -160,11 +162,11 @@ function draw(artists, tracks, recent){
   $app.innerHTML = `
   <div class="bar">
     <div class="tabs" role="group" aria-label="Période">${RANGES.map(([k,l])=>`<button class="ghost" data-r="${k}" aria-pressed="${k===range}">${l}</button>`).join("")}</div>
-    <div class="user">${me.images?.[0]?`<img src="${esc(me.images[0].url)}" alt="">`:""}<span>${esc(me.display_name||me.id)}</span><button class="ghost" id="lo">Déconnexion</button></div>
+    <div class="user">${me.images?.[0]?`<img src="${esc(me.images[0].url)}" alt="">`:""}<span>${esc(me.display_name||me.id)}</span><button class="ghost" id="imp">Historique complet</button><button class="ghost" id="lo">Déconnexion</button></div>
   </div>
   ${a0&&t0?`<div class="hero">
     <div><img src="${esc(img(a0))}" alt=""><div class="cap"><small>Artiste n°1</small><span class="big">${esc(a0.name)}</span></div></div>
-    <div><img src="${esc(img(t0))}" alt=""><div class="cap"><small>Titre n°1</small><span class="big">${esc(t0.name)}</span><span>${esc(t0.artists.map(a=>a.name).join(", "))}</span></div></div>
+    <div><img src="${esc(img(t0))}" alt=""><div class="cap"><small>Titre n°1</small><span class="big">${esc(t0.name)}</span><span>${esc((t0.artists||[]).map(a=>a.name).join(", "))}</span></div></div>
   </div>`:`<p class="note">Pas assez de données sur cette période.</p>`}
   <h2>Tes 50 dernières écoutes</h2>
   <div class="nums">
@@ -176,13 +178,70 @@ function draw(artists, tracks, recent){
   </div>
   <div class="cols">
     <section><h2>Top artistes</h2><ol>${artists.slice(0,10).map((a,i)=>row(i,a.name,img(a),(a.genres&&a.genres[0])||"")).join("")}</ol></section>
-    <section><h2>Top titres</h2><ol>${tracks.slice(0,10).map((t,i)=>row(i,t.name,img(t),t.artists[0].name)).join("")}</ol></section>
+    <section><h2>Top titres</h2><ol>${tracks.slice(0,10).map((t,i)=>row(i,t.name,img(t),(t.artists&&t.artists[0]&&t.artists[0].name)||"")).join("")}</ol></section>
   </div>
   ${genres.length?`<h2>Genres favoris</h2>
   <div class="g">${genres.map(([g,n])=>`<span>${esc(g)}</span><i style="width:${Math.max(6,100*n/gmax)}%"></i>`).join("")}</div>`:""}
   <p class="note">Spotify ne donne pas le temps d'écoute total via son API : le temps affiché porte sur tes 50 derniers titres. Pour le total sur toute ta vie, demande ton « historique de streaming étendu » dans les paramètres de confidentialité de ton compte.</p>`;
   document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{range=b.dataset.r;render();});
   document.getElementById("lo").onclick = logout;
+  document.getElementById("imp").onclick = () => showImport();
+}
+
+/* ---------- Historique complet (export Spotify) ---------- */
+const fmtH = ms => Math.round(ms/3600000).toLocaleString("fr-FR") + " h";
+const backBtn = () => { const b=document.getElementById("back"); if(b) b.onclick=()=> store.get("sp_token") ? render() : showLogin(); };
+function showImport(msg){
+  $app.innerHTML = `<div class="bar"><button class="ghost" id="back">← Retour</button></div>
+  <h2 style="margin-top:0">Ton historique complet</h2>
+  <p class="note" style="margin:0 0 16px">L'API Spotify ne donne pas tout l'historique, mais Spotify te l'envoie sur demande. Va sur spotify.com/account/privacy, descends à « Télécharger vos données », coche <b>Historique de streaming étendu</b> et confirme par e-mail (jusqu'à 30 jours d'attente). Tu reçois un .zip : dézippe-le et sélectionne ici tous les fichiers <code>Streaming_History_Audio_….json</code>. Rien n'est envoyé : tout est calculé dans ton navigateur.</p>
+  <input type="file" id="files" accept=".json" multiple aria-label="Fichiers d'historique Spotify">
+  ${msg?`<p class="err">${esc(msg)}</p>`:""}`;
+  backBtn();
+  document.getElementById("files").onchange = async e => {
+    let all = [];
+    for(const f of e.target.files){ try{ const d = JSON.parse(await f.text()); if(Array.isArray(d)) all = all.concat(d); }catch(x){} }
+    all = all.filter(r => r && typeof r.ms_played === "number");
+    all.length ? drawHistory(all) : showImport("Aucune écoute trouvée dans ces fichiers. Choisis les fichiers Streaming_History_Audio_….json.");
+  };
+}
+function drawHistory(all){
+  const A={}, T={}, Y={}; let total=0, streams=0, min=Infinity, max=0;
+  all.forEach(r=>{
+    total += r.ms_played;
+    const t = Date.parse(r.ts); if(t<min) min=t; if(t>max) max=t;
+    const y = (r.ts||"?").slice(0,4); Y[y] = (Y[y]||0) + r.ms_played;
+    const name = r.master_metadata_track_name, art = r.master_metadata_album_artist_name;
+    if(!name || !art) return;
+    const a = A[art] || (A[art]={ms:0,n:0}); a.ms += r.ms_played;
+    const k = name+"\u0000"+art, tr = T[k] || (T[k]={name,art,ms:0,n:0}); tr.ms += r.ms_played;
+    if(r.ms_played >= 30000){ a.n++; tr.n++; streams++; }
+  });
+  const arts = Object.entries(A).sort((x,y)=>y[1].ms-x[1].ms);
+  const trs = Object.values(T).sort((x,y)=>y.n-x.n || y.ms-x.ms);
+  const years = Object.keys(Y).sort(), ymax = Math.max(...Object.values(Y));
+  const days = isFinite(min) ? Math.max(1,(max-min)/86400000) : 1;
+  const since = isFinite(min) ? new Date(min).toLocaleDateString("fr-FR",{month:"long",year:"numeric"}) : "–";
+  const li = (i,n,sub) => `<li class="row"><span class="rk">${i+1}</span><div class="t" style="flex:1"><div>${esc(n)}</div><div class="s">${esc(sub)}</div></div></li>`;
+  $app.innerHTML = `<div class="bar"><button class="ghost" id="back">← Retour</button></div>
+  <h2 style="margin-top:0">Depuis ${esc(since)}, tu as écouté</h2>
+  <div class="nums">
+    <div class="num"><b>${fmtH(total)}</b><span>soit ${(total/86400000).toFixed(1).replace(".",",")} jours non-stop</span></div>
+    <div class="num"><b>${streams.toLocaleString("fr-FR")}</b><span>écoutes de plus de 30 secondes</span></div>
+    <div class="num"><b>${arts.length.toLocaleString("fr-FR")}</b><span>artistes différents</span></div>
+    <div class="num"><b>${Math.round(total/60000/days)} min</b><span>d'écoute par jour en moyenne</span></div>
+  </div>
+  ${arts[0]&&trs[0]?`<div class="hero" style="margin-top:16px">
+    <div style="min-height:180px"><div class="cap"><small>Artiste le plus écouté</small><span class="big">${esc(arts[0][0])}</span><span>${fmtH(arts[0][1].ms)} · ${arts[0][1].n.toLocaleString("fr-FR")} écoutes</span></div></div>
+    <div style="min-height:180px"><div class="cap"><small>Titre le plus écouté</small><span class="big">${esc(trs[0].name)}</span><span>${esc(trs[0].art)} · ${trs[0].n.toLocaleString("fr-FR")} écoutes</span></div></div>
+  </div>`:""}
+  <div class="cols">
+    <section><h2>Top artistes (par temps)</h2><ol>${arts.slice(0,10).map(([n,v],i)=>li(i,n,fmtH(v.ms)+" · "+v.n.toLocaleString("fr-FR")+" écoutes")).join("")}</ol></section>
+    <section><h2>Top titres (par écoutes)</h2><ol>${trs.slice(0,10).map((t,i)=>li(i,t.name,t.art+" · "+t.n.toLocaleString("fr-FR")+" écoutes")).join("")}</ol></section>
+  </div>
+  <h2>Temps d'écoute par année</h2>
+  <div class="g">${years.map(y=>`<span>${esc(y)} · ${fmtH(Y[y])}</span><i style="width:${Math.max(3,100*Y[y]/ymax)}%"></i>`).join("")}</div>`;
+  backBtn();
 }
 
 /* ---------- Démarrage ---------- */
